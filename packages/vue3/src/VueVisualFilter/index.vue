@@ -13,7 +13,7 @@ import FilterCondition from "./FilterCondition.vue"
 
 export default {
   name: "VueVisualFilter",
-  emits: ["filterUpdate"],
+  emits: ["filterUpdate", "update:modelValue"],
   props: {
     filteringOptions: {
       type: Object,
@@ -43,16 +43,28 @@ export default {
         }
       },
     },
+    // New props to support v-model for binding filter state
+    modelValue: {
+      type: Object,
+      default: null,
+    },
+    enableHistory: {
+      type: Boolean,
+      default: false,
+    },
   },
+
   data() {
     return {
-      filter: {
-        type: FilterType.GROUP,
-        groupType: GroupType.AND,
-        filters: [],
-      },
+      filter: this.modelValue
+        ? deepCopy(this.modelValue)
+        : { type: FilterType.GROUP, groupType: GroupType.AND, filters: [] },
+      history: [],
+      future: [],
+      isRestoring: false,
     }
   },
+
   computed: {
     fieldNames() {
       return this.filteringOptions.data.map((field) => field.name)
@@ -64,21 +76,53 @@ export default {
       return Object.keys(this.filteringOptions.methods.nominal)
     },
   },
+
   watch: {
+    // to sync 
+    modelValue: {
+      deep: true,
+      handler(newVal) {
+        if (newVal && JSON.stringify(newVal) !== JSON.stringify(this.filter)) {
+          if (!this.isRestoring) {
+            // When modelValue changes externally, clear history and future
+            this.history = [];
+            this.future = [];
+          }
+          this.filter = deepCopy(newVal);
+          this.isRestoring = false; // Reset after potential external update
+        }
+      },
+    },
+
+    // when filter changes
     filter: {
       deep: true,
-      handler() {
-        this.$emit("filterUpdate", {
-          filter: deepCopy(this.filter),
+      handler(newVal, oldVal) {
+        // Only record history if not currently restoring a state
+        if (this.enableHistory && !this.isRestoring) {
+          if (oldVal && Object.keys(oldVal).length > 0) {
+            this.history.push(deepCopy(oldVal));
+            this.future = []; 
+          }
+        }
+        
+        this.isRestoring = false;
+
+        const updated = {
+          filter: deepCopy(newVal),
           data: applyFilter(
-            this.filter,
+            newVal,
             this.filteringOptions.methods,
             deepCopy(this.filteringOptions.data),
           ),
-        })
+        }
+
+        this.$emit("filterUpdate", updated)
+        this.$emit("update:modelValue", deepCopy(newVal))//Every changes effect filter state in the parent.
       },
     },
   },
+
   methods: {
     updateConditionField(condition, newFieldName) {
       const {
@@ -96,6 +140,7 @@ export default {
         condition.dataType = newType
       }
     },
+
     addFilter(filters, newFilterType) {
       if (newFilterType === FilterType.GROUP) {
         filters.push({
@@ -122,6 +167,7 @@ export default {
         })
       }
     },
+
     deleteFilter(filterToDelete) {
       function recursiveDeletion(filter, index, filters) {
         if (filter === filterToDelete) {
@@ -135,7 +181,34 @@ export default {
         recursiveDeletion(this.filter)
       }
     },
+
+    // New Methods for control
+    //reset
+    resetFilter() {
+      this.filter = {
+        type: FilterType.GROUP,
+        groupType: GroupType.AND,
+        filters: [],
+      }
+      this.history = []
+      this.future = []
+    },
+    //undo
+    undo() {
+      if (!this.enableHistory || this.history.length === 0) return;
+      this.isRestoring = true;
+      this.future.unshift(deepCopy(this.filter)); // Add current state to future
+      this.filter = this.history.pop(); // Restore previous state
+    },
+    // redo
+    redo() {
+      if (!this.enableHistory || this.future.length === 0) return;
+      this.isRestoring = true;
+      this.history.push(deepCopy(this.filter)); // Add current state to history
+      this.filter = this.future.shift(); // Restore future state
+    },
   },
+
   render() {
     const createVisualizer = (filter) => {
       if (filter.type === FilterType.GROUP) {
