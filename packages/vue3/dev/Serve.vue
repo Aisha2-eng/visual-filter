@@ -9,17 +9,23 @@ export default {
         data: [
           {
             name: "First Name",
-            type: "nominal",
+            type: DataType.NOMINAL,  // Using constant for consistency
             values: ["Obada", "Ahmad", "Omar"],
           },
           {
             name: "Last Name",
-            type: "nominal",
+            type: DataType.NOMINAL,  // Using constant for consistency
             values: ["Khalili", "Drhili", "Hala hili"],
-          },        {
+          },
+          {
             name: "Grade",
-            type: "numeric",
+            type: DataType.NUMERIC,  // Using constant for consistency
             values: [3.72, 3.52, 3.4],
+          },
+          {
+            name: "Enrollment Date",
+            type: DataType.DATE,
+            values: ["2023-01-15", "2023-03-20", "2022-11-01", "2024-02-28"],
           },
         ],
         methods: {
@@ -45,15 +51,36 @@ export default {
               return cellValue.endsWith(argument);
             },
           },
+          date: {
+            before(cellValue, argument) {
+              const cellDate = new Date(cellValue);
+              const argDate = new Date(argument);
+              return cellDate < argDate;
+            },
+            after(cellValue, argument) {
+              const cellDate = new Date(cellValue);
+              const argDate = new Date(argument);
+              return cellDate > argDate;
+            },
+            on(cellValue, argument) {
+              const cellDate = new Date(cellValue);
+              const argDate = new Date(argument);
+              return (
+                cellDate.getFullYear() === argDate.getFullYear() &&
+                cellDate.getMonth() === argDate.getMonth() &&
+                cellDate.getDate() === argDate.getDate()
+              );
+            },
+          },
         },
       },
-
-      filterState: null, // current filter state
-      savedFilters: {}, // stored filters in localStorage 
+  filterState: null, // current filter (used as v-model payload)
+  filteredResult: null, // last { filter, data } emitted by filter-update
+      savedFilters: {}, // stored filters in localStorage
       filterName: "", // name the filter for saving
       selectedFilter: "", // for loading
       preConfiguredFilters: {
-        "grade_a": {
+        grade_a: {
           type: FilterType.GROUP,
           groupType: GroupType.AND,
           filters: [
@@ -66,7 +93,7 @@ export default {
             },
           ],
         },
-        "first_name_obada": {
+        first_name_obada: {
           type: FilterType.GROUP,
           groupType: GroupType.AND,
           filters: [
@@ -93,12 +120,15 @@ export default {
       const urlParams = new URLSearchParams(window.location.search);
       const filterName = urlParams.get("filter");
       if (filterName && this.preConfiguredFilters[filterName]) {
+        // Only set the filter config; component will compute result
         this.filterState = this.preConfiguredFilters[filterName];
         alert(`Loaded pre-configured filter: ${filterName}`);
       }
     },
     captureFilterUpdate(ctx) {
-      this.filterState = ctx;
+        // Do not override v-model payload; keep it as filter only
+        // Store full payload separately for display purposes
+        this.filteredResult = ctx;
     },
 
     //save current filter to localStorage
@@ -128,6 +158,7 @@ export default {
     loadFilter() {
       const filter = this.savedFilters[this.selectedFilter];
       if (filter) {
+        // Load only the filter config
         this.filterState = filter;
         alert(`Loaded filter: ${this.selectedFilter}`);
       }
@@ -151,9 +182,10 @@ export default {
         alert("Filter state reset!");
       }
     },
-    
+
     loadPreConfiguredFilter(filterName) {
       if (this.preConfiguredFilters[filterName]) {
+        // Only set the filter config
         this.filterState = this.preConfiguredFilters[filterName];
         alert(`Loaded pre-configured filter: ${filterName}`);
       }
@@ -173,30 +205,33 @@ export default {
         placeholder="Name your filter"
         style="padding:6px; border:1px solid #ccc; border-radius:4px;"
       />
-      <button @click="saveFilter" style="margin-left:8px;">Save </button>
+      <button @click="saveFilter" style="margin-left:8px;">Save</button>
 
-      <select v-model="selectedFilter" @change="loadFilter" style="margin-left:8px; padding: 8px 10px; border-radius: 8px; border: 1px solid #e2e8f0;">
+      <select
+        v-model="selectedFilter"
+        @change="loadFilter"
+        style="margin-left:8px; padding: 8px 10px; border-radius: 8px; border: 1px solid #e2e8f0;"
+      >
         <option value="">Load Saved Filter</option>
         <option v-for="(f, name) in savedFilters" :key="name" :value="name">
           {{ name }}
         </option>
       </select>
     </div>
-    
-   
-      <div style="margin-top: 16px; display: flex; gap:8px; align-items: center;">
+
+    <div style="margin-top: 16px; display: flex; gap:8px; align-items: center;">
       <strong>Pre-configured Filters:</strong>
       <button @click="loadPreConfiguredFilter('grade_a')">Grade > 3.5</button>
-      <button @click="loadPreConfiguredFilter('first_name_obada')">First Name contains 'Obada'</button>
+      <button @click="loadPreConfiguredFilter('first_name_obada')">
+        First Name contains 'Obada'
+      </button>
     </div>
-    
 
     <div style="margin-bottom: 8px; display: flex; gap:8px; align-items: center;">
-        <button class="btn warn" @click="resetFilter" title="Reset">🔁</button>
-        <button class="btn" @click="undoFilter" title="Undo">↩️</button>
-        <button class="btn" @click="redoFilter" title="Redo">↪️</button>
-        
-      </div>
+      <button class="btn warn" @click="resetFilter" title="Reset">🔁</button>
+      <button class="btn" @click="undoFilter" title="Undo">↩️</button>
+      <button class="btn" @click="redoFilter" title="Redo">↪️</button>
+    </div>
 
     <VueVisualFilter
       ref="visualFilter"
@@ -223,6 +258,7 @@ button {
 }
 button:hover {
   background-color: #76aeea;
-  filter:brightness(0.98); transform: translateY(-1px);
+  filter: brightness(0.98);
+  transform: translateY(-1px);
 }
 </style>

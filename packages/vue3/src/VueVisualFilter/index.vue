@@ -36,7 +36,11 @@ export default {
             ) &&
             Object.values(value.methods.nominal).every(
               (method) => typeof method === "function",
-            )
+            ) &&
+            // Add validation for date methods if they exist
+            (!value.methods.date || Object.values(value.methods.date).every(
+              (method) => typeof method === "function",
+            ))
           )
         } catch {
           return false
@@ -75,6 +79,11 @@ export default {
     nominalMethodNames() {
       return Object.keys(this.filteringOptions.methods.nominal)
     },
+    dateMethodNames() {
+      return this.filteringOptions.methods.date 
+        ? Object.keys(this.filteringOptions.methods.date)
+        : []
+    },
   },
 
   watch: {
@@ -100,45 +109,70 @@ export default {
       handler(newVal, oldVal) {
         // Only record history if not currently restoring a state
         if (this.enableHistory && !this.isRestoring) {
-          if (oldVal && Object.keys(oldVal).length > 0) {
-            this.history.push(deepCopy(oldVal));
-            this.future = []; 
+          // DEFENSIVE CHECK: Ensure oldVal is a valid object before deep copying
+          if (oldVal && typeof oldVal === 'object' && Object.keys(oldVal).length > 0) {
+            try {
+              this.history.push(deepCopy(oldVal));
+              this.future = [];
+            } catch (error) {
+              console.error("Error during deepCopy of oldVal:", error);
+            }
           }
         }
         
         this.isRestoring = false;
 
-        const updated = {
-          filter: deepCopy(newVal),
-          data: applyFilter(
-            newVal,
-            this.filteringOptions.methods,
-            deepCopy(this.filteringOptions.data),
-          ),
+        // DEFENSIVE CHECK: Ensure newVal is valid before processing
+        if (!newVal || typeof newVal !== 'object') {
+          console.warn("Invalid filter value:", newVal);
+          return;
         }
 
-        this.$emit("filterUpdate", updated)
-        this.$emit("update:modelValue", deepCopy(newVal))//Every changes effect filter state in the parent.
+        try {
+          const updated = {
+            filter: deepCopy(newVal),
+            data: applyFilter(
+              newVal,
+              this.filteringOptions.methods,
+              deepCopy(this.filteringOptions.data),
+            ),
+          }
+
+          this.$emit("filterUpdate", updated)
+          this.$emit("update:modelValue", deepCopy(newVal))
+        } catch (error) {
+          console.error("Error during filter update:", error);
+        }
       },
     },
   },
 
   methods: {
     updateConditionField(condition, newFieldName) {
-      const {
-        type: newType,
-        values: [newSampleValue = ""],
-      } = this.filteringOptions.data.find(
-        (field) => field.name === newFieldName,
-      )
+      const field = this.filteringOptions.data.find(
+        (f) => f.name === newFieldName,
+      );
+
+      if (!field) {
+        console.warn(`Field with name ${newFieldName} not found in filteringOptions.data.`);
+        return; // Prevent further errors if field is not found
+      }
+
+      const { type: newType, values: [newSampleValue = ""] } = field;
+
       if (condition.dataType !== newType) {
-        condition.method =
-          (newType === DataType.NUMERIC
-            ? this.numericMethodNames[0]
-            : this.nominalMethodNames[0]) || ""
+        if (newType === DataType.NUMERIC) {
+          condition.method = this.numericMethodNames[0] || ""
+        } else if (newType === DataType.DATE) {
+          condition.method = this.dateMethodNames[0] || ""
+        } else {
+          condition.method = this.nominalMethodNames[0] || ""
+        }
         condition.argument = newSampleValue
         condition.dataType = newType
       }
+      // Update the fieldName
+      condition.fieldName = newFieldName;
     },
 
     addFilter(filters, newFilterType) {
@@ -149,20 +183,33 @@ export default {
           filters: [],
         })
       } else {
+        // Ensure there's at least one field to pick from
+        if (!this.filteringOptions.data || this.filteringOptions.data.length === 0) {
+          console.warn("Cannot add filter condition: filteringOptions.data is empty.");
+          return; // Prevent adding a condition if no data fields are available
+        }
+
         const {
           name,
           type,
           values: [sampleValue = ""],
         } = this.filteringOptions.data[0]
 
+        // Determine the appropriate method based on the data type
+        let method = ""
+        if (type === DataType.NUMERIC) {
+          method = this.numericMethodNames[0] || ""
+        } else if (type === DataType.DATE) {
+          method = this.dateMethodNames[0] || ""
+        } else {
+          method = this.nominalMethodNames[0] || ""
+        }
+
         filters.push({
           type: FilterType.CONDITION,
           fieldName: name,
           dataType: type,
-          method:
-            (type === DataType.NUMERIC
-              ? this.numericMethodNames[0]
-              : this.nominalMethodNames[0]) || "",
+          method: method,
           argument: sampleValue,
         })
       }
@@ -197,15 +244,25 @@ export default {
     undo() {
       if (!this.enableHistory || this.history.length === 0) return;
       this.isRestoring = true;
-      this.future.unshift(deepCopy(this.filter)); // Add current state to future
-      this.filter = this.history.pop(); // Restore previous state
+      try {
+        this.future.unshift(deepCopy(this.filter)); // Add current state to future
+        this.filter = this.history.pop(); // Restore previous state
+      } catch (error) {
+        console.error("Error during undo:", error);
+        this.isRestoring = false;
+      }
     },
     // redo
     redo() {
       if (!this.enableHistory || this.future.length === 0) return;
       this.isRestoring = true;
-      this.history.push(deepCopy(this.filter)); // Add current state to history
-      this.filter = this.future.shift(); // Restore future state
+      try {
+        this.history.push(deepCopy(this.filter)); // Add current state to history
+        this.filter = this.future.shift(); // Restore future state
+      } catch (error) {
+        console.error("Error during redo:", error);
+        this.isRestoring = false;
+      }
     },
   },
 
@@ -237,6 +294,7 @@ export default {
             fieldNames: this.fieldNames,
             numericMethodNames: this.numericMethodNames,
             nominalMethodNames: this.nominalMethodNames,
+            dateMethodNames: this.dateMethodNames,
             onUpdateField: this.updateConditionField,
             onDeleteCondition: this.deleteFilter,
           },
