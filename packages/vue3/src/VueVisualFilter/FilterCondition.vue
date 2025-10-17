@@ -5,6 +5,11 @@ export default {
   name: "FilterCondition",
   emits: ["updateField", "deleteCondition"],
   props: {
+    dateMethodNames: {
+      type: Array,
+      required: false,
+      default: () => [],
+    },
     condition: {
       type: Object,
       required: true,
@@ -28,6 +33,18 @@ export default {
   computed: {
     isNumeric() {
       return this.condition.dataType === DataType.NUMERIC
+    },
+    isDate() {
+      return this.condition.dataType === DataType.DATE
+    },
+    currentMethodNames() {
+      if (this.isNumeric) {
+        return this.numericMethodNames
+      } else if (this.isDate) {
+        return this.dateMethodNames
+      } else {
+        return this.nominalMethodNames
+      }
     },
   },
   methods: {
@@ -57,13 +74,14 @@ export default {
       name="methodUpdation"
       v-bind="{
         numericMethodNames: isNumeric && numericMethodNames,
-        nominalMethodNames: isNumeric || nominalMethodNames,
+        nominalMethodNames: !isNumeric && !isDate && nominalMethodNames,
+        dateMethodNames: isDate && dateMethodNames,
         condition,
       }"
     >
       <select v-model="condition.method" data-testId="method-select">
         <option
-          v-for="method in isNumeric ? numericMethodNames : nominalMethodNames"
+          v-for="method in currentMethodNames"
           :key="method"
           :value="method"
         >
@@ -73,6 +91,13 @@ export default {
     </slot>
     <slot name="argumentUpdation" :condition="condition">
       <input
+        v-if="isDate"
+        type="date"
+        v-model="condition.argument"
+        data-testId="argument-input"
+      />
+      <input
+        v-else
         type="text"
         v-model="condition.argument"
         data-testId="argument-input"
